@@ -148,7 +148,8 @@ public class Router extends Device
 		int headerLength = packet.getHeaderLength();
 		int accumulation = 0;
 		for (int i = 0; i < headerLength * 2; ++i) {
-			accumulation += 0xffff & bb.getShort();
+			if (i != 5) // skip the checksum
+				accumulation += 0xffff & bb.getShort();
 		}
 		accumulation = ((accumulation >> 16) & 0xffff)
 				+ (accumulation & 0xffff);
