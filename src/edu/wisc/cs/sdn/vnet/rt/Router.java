@@ -160,7 +160,7 @@ public class Router extends Device
 		accumulation = ((accumulation >> 16) & 0xffff)
 				+ (accumulation & 0xffff);
 		short checksum = (short) (~accumulation & 0xffff);
-		System.out.println("Check against: "+packet.getChecksum());
-		return checksum + packet.getChecksum() == 0;
+		System.out.printf("Us: %04X Them: %04X\n", checksum, packet.getChecksum());
+		return ((checksum + packet.getChecksum()) & 0xffff) == 0;
 	}
 }
