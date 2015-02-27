@@ -150,17 +150,12 @@ public class Router extends Device
 		int accumulation = 0;
 		for (int i = 0; i < headerLength * 2; ++i) {
 			short part = bb.getShort();
-			System.out.printf("%04X", part);
 			if (i != 5) // skip the checksum
 				accumulation += 0xffff & part;
-			else
-				System.out.print(" <- Checksum");
-			System.out.println();
 		}
 		accumulation = ((accumulation >> 16) & 0xffff)
 				+ (accumulation & 0xffff);
 		short checksum = (short) (~accumulation & 0xffff);
-		System.out.printf("Us: %04X Them: %04X\n", checksum, packet.getChecksum());
 		return checksum == packet.getChecksum();
 	}
 }
