@@ -5,6 +5,11 @@ import edu.wisc.cs.sdn.vnet.DumpFile;
 import edu.wisc.cs.sdn.vnet.Iface;
 
 import net.floodlightcontroller.packet.Ethernet;
+import net.floodlightcontroller.packet.IPv4;
+import net.floodlightcontroller.packet.MACAddress;
+
+import java.nio.ByteBuffer;
+import java.util.Map;
 
 /**
  * @author Aaron Gember-Jacobson and Anubhavnidhi Abhashkumar
@@ -84,8 +89,70 @@ public class Router extends Device
 		
 		/********************************************************************/
 		/* TODO: Handle packets                                             */
-		
-		
+		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4) {
+			System.out.println("Dropped! - not IPv4");
+			return;
+		}
+
+		IPv4 packet = (IPv4) etherPacket.getPayload();
+		if (!verifyChecksum(packet)) {
+			System.out.println("Dropped! - invalid checksum");
+			return;
+		}
+
+		int newTtl = packet.getTtl() - 1;
+		if (newTtl <= 0) {
+			System.out.println("Dropped! - arthritis");
+			return;
+		}
+		packet.setTtl((byte)newTtl);
+
+		if (isInterfaceBound(packet)) {
+			System.out.println("Dropped! - bound for interface");
+			return;
+		}
+
+		RouteEntry target = routeTable.lookup(packet.getDestinationAddress());
+		if (target == null) {
+			System.out.println("Dropped! - unknown destination address");
+			return;
+		}
+
+		int destination = target.getDestinationAddress();
+		if (destination == 0) {
+			destination = packet.getDestinationAddress();
+		}
+
+		ArpEntry arp = arpCache.lookup(destination);
+		if (arp == null) {
+			System.out.println("Dropped! - unknown arp entry");
+			return;
+		}
+
+		etherPacket.setSourceMACAddress(arp.getMac().toBytes());
+		sendPacket(etherPacket, target.getInterface());
+
 		/********************************************************************/
+	}
+
+	private boolean isInterfaceBound(IPv4 packet) {
+		for (Map.Entry<String, Iface> iface : interfaces.entrySet()) {
+			if (iface.getValue().getIpAddress() == packet.getDestinationAddress())
+				return true;
+		}
+		return false;
+	}
+
+	private static boolean verifyChecksum(IPv4 packet) {
+		ByteBuffer bb = ByteBuffer.wrap(packet.serialize());
+		int headerLength = packet.getHeaderLength();
+		int accumulation = 0;
+		for (int i = 0; i < headerLength * 2; ++i) {
+			accumulation += 0xffff & bb.getShort();
+		}
+		accumulation = ((accumulation >> 16) & 0xffff)
+				+ (accumulation & 0xffff);
+		short checksum = (short) (~accumulation & 0xffff);
+		return checksum == packet.getChecksum();
 	}
 }
