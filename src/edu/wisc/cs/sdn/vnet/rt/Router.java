@@ -119,9 +119,12 @@ public class Router extends Device
 		}
 
 		int destination = target.getDestinationAddress();
+		System.out.printf("Lookup destination: %X\n", destination);
 		if (destination == 0) {
 			destination = packet.getDestinationAddress();
+			System.out.printf("Changed to: %X\n", destination);
 		}
+
 
 		ArpEntry arp = arpCache.lookup(destination);
 		if (arp == null) {
