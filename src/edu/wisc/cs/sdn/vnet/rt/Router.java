@@ -145,6 +145,7 @@ public class Router extends Device
 
 	private static boolean verifyChecksum(IPv4 packet) {
 		ByteBuffer bb = ByteBuffer.wrap(packet.serialize());
+		bb.rewind();
 		int headerLength = packet.getHeaderLength();
 		int accumulation = 0;
 		for (int i = 0; i < headerLength * 2; ++i) {
