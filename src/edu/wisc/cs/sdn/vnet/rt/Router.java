@@ -161,6 +161,6 @@ public class Router extends Device
 				+ (accumulation & 0xffff);
 		short checksum = (short) (~accumulation & 0xffff);
 		System.out.printf("Us: %04X Them: %04X\n", checksum, packet.getChecksum());
-		return ((checksum + packet.getChecksum()) & 0xffff) == 0;
+		return checksum == packet.getChecksum();
 	}
 }
