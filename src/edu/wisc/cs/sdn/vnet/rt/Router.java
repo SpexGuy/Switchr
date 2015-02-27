@@ -118,7 +118,7 @@ public class Router extends Device
 			return;
 		}
 
-		int destination = target.getDestinationAddress();
+		int destination = target.getInterface().getIpAddress();
 		System.out.printf("Lookup destination: %X\n", destination);
 		if (destination == 0) {
 			destination = packet.getDestinationAddress();
