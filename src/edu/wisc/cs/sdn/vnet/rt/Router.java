@@ -118,15 +118,15 @@ public class Router extends Device
 			return;
 		}
 
-		int destination = target.getInterface().getIpAddress();
-		System.out.printf("Lookup destination: %X\n", destination);
-		if (destination == 0) {
-			destination = packet.getDestinationAddress();
-			System.out.printf("Changed to: %X\n", destination);
+		int direction =	target.getDestinationAddress();
+		System.out.printf("Lookup destination: %X\n", direction);
+		if (direction == 0) {
+			direction = packet.getDestinationAddress();
+			System.out.printf("Changed to: %X\n", direction);
 		}
 
 
-		ArpEntry arp = arpCache.lookup(destination);
+		ArpEntry arp = arpCache.lookup(direction);
 		if (arp == null) {
 			System.out.println("Dropped! - unknown arp entry");
 			return;
@@ -174,4 +174,6 @@ public class Router extends Device
 		short checksum = (short) (~accumulation & 0xffff);
 		return checksum == packet.getChecksum();
 	}
+
+
 }
