@@ -137,9 +137,11 @@ public class Router extends Device
 		System.out.println("Destination MAC is: " + etherPacket.getDestinationMAC());
 
 		IPv4 modifiedPacket = (IPv4) etherPacket.getPayload();
+		// See IPV4 ln 285
+		modifiedPacket.getPayload().resetChecksum();
 		if (!verifyChecksum(modifiedPacket)) {
-			// See IPV4 ln 285
-			modifiedPacket.getPayload().resetChecksum();
+			System.out.println("Dropped! - invalid checksum post modification");
+			return;
 		}
 
 		System.out.println("Sending packet out iFace: " + target.getInterface());
