@@ -132,7 +132,11 @@ public class Router extends Device
 			return;
 		}
 
+		System.out.println("Setting source to: " + arp.getMac());
 		etherPacket.setSourceMACAddress(arp.getMac().toBytes());
+		System.out.println("Destination MAC is: " + etherPacket.getDestinationMAC());
+
+		System.out.println("Sending packet out iFace: " + target.getInterface());
 		sendPacket(etherPacket, target.getInterface());
 
 		/********************************************************************/
