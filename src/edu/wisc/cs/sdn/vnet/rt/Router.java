@@ -138,8 +138,8 @@ public class Router extends Device
 
 		IPv4 modifiedPacket = (IPv4) etherPacket.getPayload();
 		if (!verifyChecksum(modifiedPacket)) {
-			System.out.println("Dropped! - invalid checksum on modified packet");
-			return;
+			// See IPV4 ln 285
+			modifiedPacket.setChecksum((short) 0);
 		}
 
 		System.out.println("Sending packet out iFace: " + target.getInterface());
