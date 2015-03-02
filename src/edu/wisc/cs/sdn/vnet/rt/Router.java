@@ -138,7 +138,8 @@ public class Router extends Device
 
 		IPv4 modifiedPacket = (IPv4) etherPacket.getPayload();
 		// See IPV4 ln 285
-		modifiedPacket.getPayload().resetChecksum();
+		//modifiedPacket.getPayload().resetChecksum();
+		modifiedPacket.resetChecksum();
 		if (!verifyChecksum(modifiedPacket)) {
 			System.out.println("Dropped! - invalid checksum post modification");
 			return;
