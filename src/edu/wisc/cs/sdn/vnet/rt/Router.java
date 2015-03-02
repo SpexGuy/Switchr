@@ -136,6 +136,12 @@ public class Router extends Device
 		etherPacket.setSourceMACAddress(arp.getMac().toBytes());
 		System.out.println("Destination MAC is: " + etherPacket.getDestinationMAC());
 
+		IPv4 modifiedPacket = (IPv4) etherPacket.getPayload();
+		if (!verifyChecksum(modifiedPacket)) {
+			System.out.println("Dropped! - invalid checksum on modified packet");
+			return;
+		}
+
 		System.out.println("Sending packet out iFace: " + target.getInterface());
 		sendPacket(etherPacket, target.getInterface());
 
