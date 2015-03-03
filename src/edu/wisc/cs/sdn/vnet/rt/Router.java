@@ -119,18 +119,28 @@ public class Router extends Device
 		}
 
 		int direction = target.getInterface().getIpAddress();
-		System.out.printf("Lookup destination: %X\n", direction);
-		if (target.getGatewayAddress() == 0) {
-			direction = packet.getDestinationAddress();
-			System.out.printf("Changed to: %X\n", direction);
-		}
-
 
 		ArpEntry arp = arpCache.lookup(direction);
 		if (arp == null) {
 			System.out.println("Dropped! - unknown arp entry");
 			return;
 		}
+
+		System.out.printf("Lookup destination: %X\n", direction);
+		if (target.getGatewayAddress() == 0) {
+			int destinationIp = packet.getDestinationAddress();
+			System.out.printf("Final Jump To: %X\n", destinationIp);
+
+			ArpEntry destinationArp = arpCache.lookup(destinationIp);
+			if (destinationArp == null) {
+				System.out.println("Dropped! - unknown destination arp entry");
+				return;
+			}
+
+			etherPacket.setDestinationMACAddress(destinationArp.getMac().toBytes());
+		}
+
+
 
 		System.out.println("Setting source to: " + arp.getMac());
 		etherPacket.setSourceMACAddress(arp.getMac().toBytes());
