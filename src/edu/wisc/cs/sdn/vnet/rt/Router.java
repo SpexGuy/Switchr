@@ -155,6 +155,12 @@ public class Router extends Device
 			return;
 		}
 
+		// Don't send a packet out the iface it comes in on
+		if(!(inIface == target.getInterface())) {
+			System.out.println("Dropped! - packet destined for iface it entered on");
+			return;
+		}
+
 		System.out.println("Sending packet out iFace: " + target.getInterface());
 		sendPacket(etherPacket, target.getInterface());
 
