@@ -26,6 +26,8 @@ public class Router extends Device
     public static final byte ICMP_ECHO_RESPONSE_TYPE = 0;
     public static final byte ICMP_ECHO_RESPONSE_CODE = 0;
 
+    public static final int RIP_ADDRESS = 0xE0000009; //224.0.0.9
+
     private static final byte BC = (byte) 0xFF;
     public static final byte[] BROADCAST_MAC = {BC,BC,BC,BC,BC,BC};
     public static final byte[] ZERO_MAC = {0,0,0,0,0,0};
@@ -63,7 +65,6 @@ public class Router extends Device
             this.outIface = outIface;
         }
 
-        //TODO: ensure thread safety
         private synchronized void addPacket(Iface inIface, Ethernet ether, IPv4 ip) {
             waitingPackets.add(new WaitingPacket(inIface, ether, ip));
         }
@@ -143,8 +144,74 @@ public class Router extends Device
 		System.out.print(this.routeTable.toString());
 		System.out.println("-------------------------------------------------");
 	}
-	
-	/**
+
+    public void runRIP() {
+        // add direct subnets
+        for (Iface i : interfaces.values()) {
+            routeTable.insert(i.getIpAddress(), 0, i.getSubnetMask(), i, 1);
+        }
+        broadcastRIPPackets(RIPv2.COMMAND_REQUEST, null);
+    }
+
+    private void replyToRIP(Ethernet source, Iface outIface) {
+        IPv4 ip = (IPv4) source.getPayload();
+        Ethernet out = generateRIPPacket(RIPv2.COMMAND_RESPONSE, ip.getSourceAddress(), source.getSourceMACAddress());
+        sendRIPPacket(out, outIface);
+    }
+
+    private void broadcastRIPPackets(byte command, Iface exclude) {
+        Ethernet ether = generateRIPPacket(command, RIP_ADDRESS, BROADCAST_MAC);
+
+        // SPAM YOUR FRIENDS WITH STATUS UPDATES!!!
+        for (Iface iface : interfaces.values()) {
+            if (iface == exclude)
+                continue;
+            sendRIPPacket(ether, iface);
+        }
+    }
+
+    private Ethernet generateRIPPacket(byte command, int destinationAddress, byte[] destinationMac) {
+        Ethernet ether = new Ethernet();
+        IPv4 ip = new IPv4();
+        UDP udp = new UDP();
+        RIPv2 rip = routeTable.makeRIPPacket();
+        ether.setPayload(ip);
+        ip.setPayload(udp);
+        udp.setPayload(rip);
+
+        rip.setCommand(command);
+        udp.setSourcePort(UDP.RIP_PORT);
+        udp.setDestinationPort(UDP.RIP_PORT);
+        ip.setDestinationAddress(destinationAddress);
+        ip.setProtocol(IPv4.PROTOCOL_UDP);
+        ether.setDestinationMACAddress(destinationMac);
+        ether.setEtherType(Ethernet.TYPE_IPv4);
+
+        return ether;
+    }
+
+    private void sendRIPPacket(Ethernet ether, Iface iface) {
+        IPv4 ip = (IPv4) ether.getPayload();
+        ip.setSourceAddress(iface.getIpAddress());
+        ether.setSourceMACAddress(iface.getMacAddress().toBytes());
+        sendPacket(ether, iface);
+    }
+
+    private void handleRIPPacket(Ethernet ether, Iface inIface) {
+        RIPv2 rip = (RIPv2) ether.getPayload().getPayload().getPayload();
+        if (routeTable.updateAll(rip, inIface)) {
+            // Don't ignore inIface, since it may have multiple routers on it.
+            // Then again, they would have received the offending update.
+            // TODO: Can we safely exclude inIface?
+            broadcastRIPPackets(RIPv2.COMMAND_RESPONSE, null);
+        }
+        //TODO: broadcast and reply feels redundant. else if?
+        if (rip.getCommand() == RIPv2.COMMAND_REQUEST) {
+            replyToRIP(ether, inIface);
+        }
+    }
+
+    /**
 	 * Load a new ARP cache from a file.
 	 * @param arpCacheFile the name of the file containing the ARP cache
 	 */
@@ -178,6 +245,14 @@ public class Router extends Device
 		switch(etherPacket.getEtherType())
 		{
 		case Ethernet.TYPE_IPv4:
+            IPv4 ip = (IPv4) etherPacket.getPayload();
+            if (ip.getDestinationAddress() == RIP_ADDRESS && ip.getProtocol() == IPv4.PROTOCOL_UDP) {
+                UDP udp = (UDP) ip.getPayload();
+                if (udp.getDestinationPort() == UDP.RIP_PORT) {
+                    this.handleRIPPacket(etherPacket, inIface);
+                    break;
+                }
+            }
 			this.handleIpPacket(etherPacket, inIface);
 			break;
         case Ethernet.TYPE_ARP:

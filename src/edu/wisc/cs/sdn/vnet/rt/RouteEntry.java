@@ -9,6 +9,8 @@ import edu.wisc.cs.sdn.vnet.Iface;
  */
 public class RouteEntry 
 {
+    private static final long EXPIRE_TIME = 30000;
+
 	/** Destination IP address */
 	private int destinationAddress;
 	
@@ -21,8 +23,12 @@ public class RouteEntry
 	/** Router interface out which packets should be sent to reach
 	 * the destination or gateway */
 	private Iface iface;
-	
-	/**
+
+    private long creationTime;
+
+    private int distance;
+
+    /**
 	 * Create a new route table entry.
 	 * @param destinationAddress destination IP address
 	 * @param gatewayAddress gateway IP address
@@ -31,12 +37,14 @@ public class RouteEntry
 	 *        be sent to reach the destination or gateway
 	 */
 	public RouteEntry(int destinationAddress, int gatewayAddress, 
-			int maskAddress, Iface iface)
+			int maskAddress, Iface iface, int distance)
 	{
 		this.destinationAddress = destinationAddress;
 		this.gatewayAddress = gatewayAddress;
 		this.maskAddress = maskAddress;
 		this.iface = iface;
+        this.distance = distance;
+        creationTime = System.currentTimeMillis();
 	}
 	
 	/**
@@ -53,6 +61,9 @@ public class RouteEntry
 
     public void setGatewayAddress(int gatewayAddress)
     { this.gatewayAddress = gatewayAddress; }
+
+    public void setDistance(int distance)
+    { this.distance = distance; }
 	
 	/**
 	 * @return subnet mask 
@@ -69,7 +80,16 @@ public class RouteEntry
 
     public void setInterface(Iface iface)
     { this.iface = iface; }
-	
+
+    public void refresh() {
+        creationTime = System.currentTimeMillis();
+    }
+
+    public boolean isExpired() {
+        // immediate subnets don't expire
+        return distance > 1 && System.currentTimeMillis() - creationTime > EXPIRE_TIME;
+    }
+
 	public String toString()
 	{
 		return String.format("%s \t%s \t%s \t%s",
@@ -78,4 +98,8 @@ public class RouteEntry
 				IPv4.fromIPv4Address(this.maskAddress),
 				this.iface.getName());
 	}
+
+    public int getDistance() {
+        return distance;
+    }
 }
