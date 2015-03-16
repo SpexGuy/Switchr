@@ -7,6 +7,7 @@ import edu.wisc.cs.sdn.vnet.Iface;
 import net.floodlightcontroller.packet.*;
 
 import java.nio.ByteBuffer;
+import java.util.*;
 
 /**
  * @author Aaron Gember-Jacobson and Anubhavnidhi Abhashkumar
@@ -25,12 +26,86 @@ public class Router extends Device
     public static final byte ICMP_ECHO_RESPONSE_TYPE = 0;
     public static final byte ICMP_ECHO_RESPONSE_CODE = 0;
 
+    private static final byte BC = (byte) 0xFF;
+    public static final byte[] BROADCAST_MAC = {BC,BC,BC,BC,BC,BC};
+    public static final byte[] ZERO_MAC = {0,0,0,0,0,0};
+
+    // THE ORDER OF LOCKING:
+    // 1. delayedSends
+    // 2. this
+
+    private class ArpLookupChecker extends TimerTask {
+        @Override
+        public void run() {
+            updateArpStatus();
+        }
+    }
+
+    private static class WaitingPacket {
+        public WaitingPacket(Iface inIface, Ethernet ether, IPv4 ip) {
+            this.inIface = inIface;
+            this.ether = ether;
+            this.ip = ip;
+        }
+        public Iface inIface;
+        public Ethernet ether;
+        public IPv4 ip;
+    }
+
+    private class ArpDelayedSend {
+        int numAttempts = 0;
+        List<WaitingPacket> waitingPackets = new LinkedList<WaitingPacket>();
+        int targetIP;
+        Iface outIface;
+
+        public ArpDelayedSend(int targetIP, Iface outIface) {
+            this.targetIP = targetIP;
+            this.outIface = outIface;
+        }
+
+        //TODO: ensure thread safety
+        private synchronized void addPacket(Iface inIface, Ethernet ether, IPv4 ip) {
+            waitingPackets.add(new WaitingPacket(inIface, ether, ip));
+        }
+
+        public synchronized boolean tryAgain() {
+            if (numAttempts >= 3) {
+                dropAllPackets();
+                return false;
+            }
+            ++numAttempts;
+            broadcastArpRequest(outIface, targetIP);
+            return true;
+        }
+
+        private synchronized void dropAllPackets() {
+            for (WaitingPacket e : waitingPackets) {
+                sendICMPIPPacket(e.inIface, e.ether, e.ip, ICMP_HOST_UNREACHABLE_TYPE, ICMP_HOST_UNREACHABLE_CODE);
+            }
+            waitingPackets = null;
+        }
+
+        private synchronized void register(ARP info) {
+            MACAddress mac = new MACAddress(info.getSenderHardwareAddress());
+            int ip = ByteBuffer.wrap(info.getSenderProtocolAddress()).getInt();
+            arpCache.insert(mac, ip);
+            for (WaitingPacket p : waitingPackets) {
+                forwardIpPacket(p.ether, p.inIface);
+            }
+            waitingPackets = null;
+        }
+    }
+
 	/** Routing table for the router */
 	private RouteTable routeTable;
 	
 	/** ARP cache for the router */
 	private ArpCache arpCache;
-	
+
+    private Timer arpUpdater;
+
+    private Map<Integer, ArpDelayedSend> delayedSends = new HashMap<>();
+
 	/**
 	 * Creates a router for a specific host.
 	 * @param host hostname for the router
@@ -40,6 +115,8 @@ public class Router extends Device
 		super(host,logfile);
 		this.routeTable = new RouteTable();
 		this.arpCache = new ArpCache();
+        this.arpUpdater = new Timer(true);
+        this.arpUpdater.schedule(new ArpLookupChecker(), 1000, 1000);
 	}
 	
 	/**
@@ -73,17 +150,16 @@ public class Router extends Device
 	 */
 	public void loadArpCache(String arpCacheFile)
 	{
-		if (!arpCache.load(arpCacheFile))
-		{
-			System.err.println("Error setting up ARP cache from file "
-					+ arpCacheFile);
-			System.exit(1);
-		}
-		
-		System.out.println("Loaded static ARP cache");
-		System.out.println("----------------------------------");
-		System.out.print(this.arpCache.toString());
-		System.out.println("----------------------------------");
+        if (!arpCache.load(arpCacheFile)) {
+            System.err.println("Error setting up ARP cache from file "
+                    + arpCacheFile);
+            System.exit(1);
+        }
+
+        System.out.println("Loaded static ARP cache");
+        System.out.println("----------------------------------");
+        System.out.print(this.arpCache.toString());
+        System.out.println("----------------------------------");
 	}
 
 	/**
@@ -123,7 +199,7 @@ public class Router extends Device
             }
             break;
         case ARP.OP_REPLY:
-            // TODO: really complicated queueing
+            handleArpResponse(arpPacket);
             break;
         }
     }
@@ -149,13 +225,70 @@ public class Router extends Device
 
         sendPacket(ether, inIface);
     }
-	
+
+    private void broadcastArpRequest(Iface outIface, int ip) {
+        Ethernet ether = new Ethernet();
+        ARP arp = new ARP();
+        ether.setPayload(arp);
+
+        ether.setEtherType(Ethernet.TYPE_ARP);
+        ether.setSourceMACAddress(outIface.getMacAddress().toBytes());
+        ether.setDestinationMACAddress(BROADCAST_MAC);
+
+        arp.setHardwareType(ARP.HW_TYPE_ETHERNET);
+        arp.setProtocolType(ARP.PROTO_TYPE_IP);
+        arp.setHardwareAddressLength((byte) Ethernet.DATALAYER_ADDRESS_LENGTH);
+        arp.setProtocolAddressLength((byte) 4);
+        arp.setOpCode(ARP.OP_REPLY);
+        arp.setSenderHardwareAddress(outIface.getMacAddress().toBytes());
+        arp.setSenderProtocolAddress(outIface.getIpAddress());
+        arp.setTargetHardwareAddress(ZERO_MAC);
+        arp.setTargetProtocolAddress(ip);
+
+        sendPacket(ether, outIface);
+    }
+
+    private void handleArpResponse(ARP info) {
+        int ip = ByteBuffer.wrap(info.getSenderProtocolAddress()).getInt();
+        synchronized (delayedSends) {
+            ArpDelayedSend delayed = delayedSends.remove(ip);
+            // keep this in the synchronized so that we don't race to the ARP cache
+            if (delayed != null)
+                delayed.register(info);
+        }
+    }
+
+    private void updateArpStatus() {
+        synchronized (delayedSends) {
+            List<Integer> finished = new ArrayList<Integer>();
+            for (Map.Entry<Integer, ArpDelayedSend> entry : delayedSends.entrySet()) {
+                if (!entry.getValue().tryAgain()) {
+                    finished.add(entry.getKey());
+                }
+            }
+            for (Integer i : finished) {
+                delayedSends.remove(i);
+            }
+        }
+    }
+
+    private void delayPacket(Iface inIface, Ethernet etherPacket, IPv4 ipPacket, int nextHop, Iface outIface) {
+        synchronized (delayedSends) {
+            ArpDelayedSend entry = delayedSends.get(nextHop);
+            if (entry == null) {
+                entry = new ArpDelayedSend(nextHop, outIface);
+                delayedSends.put(nextHop, entry);
+            }
+            entry.addPacket(inIface, etherPacket, ipPacket);
+        }
+    }
+
 	private void handleIpPacket(Ethernet etherPacket, Iface inIface)
 	{
 		// Make sure it's an IP packet
 		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4)
 		{ return; }
-		
+
 		// Get IP header
 		IPv4 ipPacket = (IPv4)etherPacket.getPayload();
         System.out.println("Handle IP packet");
@@ -168,17 +301,17 @@ public class Router extends Device
         short calcCksum = ipPacket.getChecksum();
         if (origCksum != calcCksum)
         { return; }
-        
+
         // Check TTL
         ipPacket.setTtl((byte)(ipPacket.getTtl()-1));
         if (0 == ipPacket.getTtl()) {
             sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_TIME_EXCEEDED_TYPE, ICMP_TIME_EXCEEDED_CODE);
             return;
         }
-        
+
         // Reset checksum now that TTL is decremented
         ipPacket.resetChecksum();
-        
+
         // Check if packet is destined for one of router's interfaces
         for (Iface iface : this.interfaces.values())
         {
@@ -196,7 +329,7 @@ public class Router extends Device
                 return;
             }
         }
-		
+
         // Do route lookup and forward
         this.forwardIpPacket(etherPacket, inIface);
 	}
@@ -207,12 +340,12 @@ public class Router extends Device
 		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4)
 		{ return; }
         System.out.println("Forward IP packet");
-		
+
 		// Get IP header
 		IPv4 ipPacket = (IPv4)etherPacket.getPayload();
         int dstAddr = ipPacket.getDestinationAddress();
 
-        // Find matching route table entry 
+        // Find matching route table entry
         RouteEntry bestMatch = this.routeTable.lookup(dstAddr);
 
         // If no entry matched, ICMP Destination Net Unreachable
@@ -237,11 +370,13 @@ public class Router extends Device
         // Set destination MAC address in Ethernet header
         ArpEntry arpEntry = this.arpCache.lookup(nextHop);
         if (null == arpEntry) {
-            sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_HOST_UNREACHABLE_TYPE, ICMP_HOST_UNREACHABLE_CODE);
+            delayPacket(inIface, etherPacket, ipPacket, nextHop, outIface);
+            //don't send ICMP here anymore
+            //sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_HOST_UNREACHABLE_TYPE, ICMP_HOST_UNREACHABLE_CODE);
             return;
         }
         etherPacket.setDestinationMACAddress(arpEntry.getMac().toBytes());
-        
+
         this.sendPacket(etherPacket, outIface);
     }
 

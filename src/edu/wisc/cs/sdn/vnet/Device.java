@@ -107,7 +107,7 @@ public abstract class Device
 	 * @param iface interface on which to send the packet
 	 * @return true if the packet was sent successfully, otherwise false
 	 */
-	public boolean sendPacket(Ethernet etherPacket, Iface iface)
+	public synchronized boolean sendPacket(Ethernet etherPacket, Iface iface)
 	{ return this.vnsComm.sendPacket(etherPacket, iface.getName()); }
 	
 	public abstract void handlePacket(Ethernet etherPacket, Iface inIface);

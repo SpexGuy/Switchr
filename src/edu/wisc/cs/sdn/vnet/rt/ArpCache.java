@@ -52,85 +52,87 @@ public class ArpCache
 	 */
 	public boolean load(String filename)
 	{
-		// Open the file
-		BufferedReader reader;
-		try 
-		{
-			FileReader fileReader = new FileReader(filename);
-			reader = new BufferedReader(fileReader);
-		}
-		catch (FileNotFoundException e) 
-		{
-			System.err.println(e.toString());
-			return false;
-		}
-		
-		while (true)
-		{
-			// Read an ARP entry from the file
-			String line = null;
-			try 
-			{ line = reader.readLine(); }
-			catch (IOException e) 
-			{
-				System.err.println(e.toString());
-				try { reader.close(); } catch (IOException f) {};
-				return false;
-			}
-			
-			// Stop if we have reached the end of the file
-			if (null == line)
-			{ break; }
-			
-			// Parse fields for ARP entry
-			String ipPattern = "(\\d+\\.\\d+\\.\\d+\\.\\d+)";
-			String macByte = "[a-fA-F0-9]{2}";
-			String macPattern = "("+macByte+":"+macByte+":"+macByte
-					+":"+macByte+":"+macByte+":"+macByte+")";
-			Pattern pattern = Pattern.compile(String.format(
-                        "%s\\s+%s", ipPattern, macPattern));
-			Matcher matcher = pattern.matcher(line);
-			if (!matcher.matches() || matcher.groupCount() != 2)
-			{
-				System.err.println("Invalid entry in ARP cache file");
-				try { reader.close(); } catch (IOException f) {};
-				return false;
-			}
+        synchronized (entries) {
+            // Open the file
+            BufferedReader reader;
+            try {
+                FileReader fileReader = new FileReader(filename);
+                reader = new BufferedReader(fileReader);
+            } catch (FileNotFoundException e) {
+                System.err.println(e.toString());
+                return false;
+            }
 
-			int ip = IPv4.toIPv4Address(matcher.group(1));
-			if (0 == ip)
-			{
-				System.err.println("Error loading ARP cache, cannot convert "
-						+ matcher.group(1) + " to valid IP");
-				try { reader.close(); } catch (IOException f) {};
-				return false;
-			}
-			
-			MACAddress mac = null;
-			try
-			{ mac = MACAddress.valueOf(matcher.group(2)); }
-			catch(IllegalArgumentException iae)
-			{
-				System.err.println("Error loading ARP cache, cannot convert " 
-						+ matcher.group(3) + " to valid MAC");
-				try { reader.close(); } catch (IOException f) {};
-				return false;
-			}
-			
-			// Add an entry to the ACP cache
-			this.insert(mac, ip);
-		}
-	
-		// Close the file
-		try { reader.close(); } catch (IOException f) {};
-		return true;
+            while (true) {
+                // Read an ARP entry from the file
+                String line = null;
+                try {
+                    line = reader.readLine();
+                } catch (IOException e) {
+                    System.err.println(e.toString());
+                    try {reader.close();} catch (IOException f) {}
+
+                    return false;
+                }
+
+                // Stop if we have reached the end of the file
+                if (null == line) {
+                    break;
+                }
+
+                // Parse fields for ARP entry
+                String ipPattern = "(\\d+\\.\\d+\\.\\d+\\.\\d+)";
+                String macByte = "[a-fA-F0-9]{2}";
+                String macPattern = "(" + macByte + ":" + macByte + ":" + macByte
+                        + ":" + macByte + ":" + macByte + ":" + macByte + ")";
+                Pattern pattern = Pattern.compile(String.format(
+                        "%s\\s+%s", ipPattern, macPattern));
+                Matcher matcher = pattern.matcher(line);
+                if (!matcher.matches() || matcher.groupCount() != 2) {
+                    System.err.println("Invalid entry in ARP cache file");
+                    try {reader.close();} catch (IOException f) {}
+
+                    return false;
+                }
+
+                int ip = IPv4.toIPv4Address(matcher.group(1));
+                if (0 == ip) {
+                    System.err.println("Error loading ARP cache, cannot convert "
+                            + matcher.group(1) + " to valid IP");
+                    try {reader.close();} catch (IOException f) {}
+
+                    return false;
+                }
+
+                MACAddress mac = null;
+                try {
+                    mac = MACAddress.valueOf(matcher.group(2));
+                } catch (IllegalArgumentException iae) {
+                    System.err.println("Error loading ARP cache, cannot convert "
+                            + matcher.group(3) + " to valid MAC");
+                    try {reader.close();} catch (IOException f) {}
+
+                    return false;
+                }
+
+                // Add an entry to the ACP cache
+                this.insert(mac, ip);
+            }
+
+            // Close the file
+            try {reader.close();} catch (IOException f) {}
+            return true;
+        }
 	}
 	
 	public String toString()
 	{
-        String result = "IP\t\tMAC\n";
-        for (ArpEntry entry : this.entries.values())
-        { result += entry.toString()+"\n"; }
-	    return result;
+        synchronized (entries) {
+            String result = "IP\t\tMAC\n";
+            for (ArpEntry entry : this.entries.values()) {
+                result += entry.toString() + "\n";
+            }
+            return result;
+        }
 	}
 }
