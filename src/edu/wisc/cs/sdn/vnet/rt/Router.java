@@ -36,6 +36,13 @@ public class Router extends Device
     // 1. delayedSends
     // 2. this
 
+    private class RIPIntermittentBroadcaster extends TimerTask {
+        @Override
+        public void run() {
+            broadcastRIPPackets(RIPv2.COMMAND_RESPONSE, null);
+        }
+    }
+
     private class ArpLookupChecker extends TimerTask {
         @Override
         public void run() {
@@ -103,7 +110,7 @@ public class Router extends Device
 	/** ARP cache for the router */
 	private ArpCache arpCache;
 
-    private Timer arpUpdater;
+    private Timer updateTimer;
 
     private Map<Integer, ArpDelayedSend> delayedSends = new HashMap<>();
 
@@ -116,8 +123,8 @@ public class Router extends Device
 		super(host,logfile);
 		this.routeTable = new RouteTable();
 		this.arpCache = new ArpCache();
-        this.arpUpdater = new Timer(true);
-        this.arpUpdater.schedule(new ArpLookupChecker(), 1000, 1000);
+        this.updateTimer = new Timer(true);
+        this.updateTimer.schedule(new ArpLookupChecker(), 1000, 1000);
 	}
 	
 	/**
@@ -151,64 +158,7 @@ public class Router extends Device
             routeTable.insert(i.getIpAddress(), 0, i.getSubnetMask(), i, 1);
         }
         broadcastRIPPackets(RIPv2.COMMAND_REQUEST, null);
-    }
-
-    private void replyToRIP(Ethernet source, Iface outIface) {
-        IPv4 ip = (IPv4) source.getPayload();
-        Ethernet out = generateRIPPacket(RIPv2.COMMAND_RESPONSE, ip.getSourceAddress(), source.getSourceMACAddress());
-        sendRIPPacket(out, outIface);
-    }
-
-    private void broadcastRIPPackets(byte command, Iface exclude) {
-        Ethernet ether = generateRIPPacket(command, RIP_ADDRESS, BROADCAST_MAC);
-
-        // SPAM YOUR FRIENDS WITH STATUS UPDATES!!!
-        for (Iface iface : interfaces.values()) {
-            if (iface == exclude)
-                continue;
-            sendRIPPacket(ether, iface);
-        }
-    }
-
-    private Ethernet generateRIPPacket(byte command, int destinationAddress, byte[] destinationMac) {
-        Ethernet ether = new Ethernet();
-        IPv4 ip = new IPv4();
-        UDP udp = new UDP();
-        RIPv2 rip = routeTable.makeRIPPacket();
-        ether.setPayload(ip);
-        ip.setPayload(udp);
-        udp.setPayload(rip);
-
-        rip.setCommand(command);
-        udp.setSourcePort(UDP.RIP_PORT);
-        udp.setDestinationPort(UDP.RIP_PORT);
-        ip.setDestinationAddress(destinationAddress);
-        ip.setProtocol(IPv4.PROTOCOL_UDP);
-        ether.setDestinationMACAddress(destinationMac);
-        ether.setEtherType(Ethernet.TYPE_IPv4);
-
-        return ether;
-    }
-
-    private void sendRIPPacket(Ethernet ether, Iface iface) {
-        IPv4 ip = (IPv4) ether.getPayload();
-        ip.setSourceAddress(iface.getIpAddress());
-        ether.setSourceMACAddress(iface.getMacAddress().toBytes());
-        sendPacket(ether, iface);
-    }
-
-    private void handleRIPPacket(Ethernet ether, Iface inIface) {
-        RIPv2 rip = (RIPv2) ether.getPayload().getPayload().getPayload();
-        if (routeTable.updateAll(rip, inIface)) {
-            // Don't ignore inIface, since it may have multiple routers on it.
-            // Then again, they would have received the offending update.
-            // TODO: Can we safely exclude inIface?
-            broadcastRIPPackets(RIPv2.COMMAND_RESPONSE, null);
-        }
-        //TODO: broadcast and reply feels redundant. else if?
-        if (rip.getCommand() == RIPv2.COMMAND_REQUEST) {
-            replyToRIP(ether, inIface);
-        }
+        updateTimer.schedule(new RIPIntermittentBroadcaster(), 10000, 10000);
     }
 
     /**
@@ -238,10 +188,10 @@ public class Router extends Device
 	{
 		System.out.println("*** -> Received packet: " +
                 etherPacket.toString().replace("\n", "\n\t"));
-		
+
 		/********************************************************************/
 		/* Handle packets                                             */
-		
+
 		switch(etherPacket.getEtherType())
 		{
 		case Ethernet.TYPE_IPv4:
@@ -260,9 +210,71 @@ public class Router extends Device
             break;
 		// Ignore all other packet types, for now
 		}
-		
+
 		/********************************************************************/
 	}
+
+    // -------------------------------- RIP ------------------------------------
+
+    private void handleRIPPacket(Ethernet ether, Iface inIface) {
+        RIPv2 rip = (RIPv2) ether.getPayload().getPayload().getPayload();
+        if (routeTable.updateAll(rip, inIface)) {
+            // Don't ignore inIface, since it may have multiple routers on it.
+            // Then again, they would have received the offending update.
+            // TODO: Can we safely exclude inIface?
+            broadcastRIPPackets(RIPv2.COMMAND_RESPONSE, null);
+        }
+        //TODO: broadcast and reply feels redundant. else if?
+        if (rip.getCommand() == RIPv2.COMMAND_REQUEST) {
+            replyToRIP(ether, inIface);
+        }
+    }
+
+    private void broadcastRIPPackets(byte command, Iface exclude) {
+        Ethernet ether = generateRIPPacket(command, RIP_ADDRESS, BROADCAST_MAC);
+
+        // SPAM YOUR FRIENDS WITH STATUS UPDATES!!!
+        for (Iface iface : interfaces.values()) {
+            if (iface == exclude)
+                continue;
+            sendRIPPacket(ether, iface);
+        }
+    }
+
+    private void replyToRIP(Ethernet source, Iface outIface) {
+        IPv4 ip = (IPv4) source.getPayload();
+        Ethernet out = generateRIPPacket(RIPv2.COMMAND_RESPONSE, ip.getSourceAddress(), source.getSourceMACAddress());
+        sendRIPPacket(out, outIface);
+    }
+
+    private Ethernet generateRIPPacket(byte command, int destinationAddress, byte[] destinationMac) {
+        Ethernet ether = new Ethernet();
+        IPv4 ip = new IPv4();
+        UDP udp = new UDP();
+        RIPv2 rip = routeTable.makeRIPPacket();
+        ether.setPayload(ip);
+        ip.setPayload(udp);
+        udp.setPayload(rip);
+
+        rip.setCommand(command);
+        udp.setSourcePort(UDP.RIP_PORT);
+        udp.setDestinationPort(UDP.RIP_PORT);
+        ip.setDestinationAddress(destinationAddress);
+        ip.setProtocol(IPv4.PROTOCOL_UDP);
+        ether.setDestinationMACAddress(destinationMac);
+        ether.setEtherType(Ethernet.TYPE_IPv4);
+
+        return ether;
+    }
+
+    private void sendRIPPacket(Ethernet ether, Iface iface) {
+        IPv4 ip = (IPv4) ether.getPayload();
+        ip.setSourceAddress(iface.getIpAddress());
+        ether.setSourceMACAddress(iface.getMacAddress().toBytes());
+        sendPacket(ether, iface);
+    }
+
+    // --------------------------------- ARP -----------------------------------
 
     private void handleArpPacket(Ethernet etherPacket, Iface inIface) {
         ARP arpPacket = (ARP) etherPacket.getPayload();
@@ -357,6 +369,8 @@ public class Router extends Device
             entry.addPacket(inIface, etherPacket, ipPacket);
         }
     }
+
+    // ---------------------------------- IPv4 ---------------------------------
 
 	private void handleIpPacket(Ethernet etherPacket, Iface inIface)
 	{
@@ -454,6 +468,8 @@ public class Router extends Device
 
         this.sendPacket(etherPacket, outIface);
     }
+
+    // ---------------------------------- ICMP ---------------------------------
 
     private void sendICMPIPPacket(Iface source, Ethernet etherSource, IPv4 ipSource, byte type, byte code) {
         byte[] ipBytes = ipSource.serialize();
