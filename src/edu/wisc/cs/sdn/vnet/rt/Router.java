@@ -4,14 +4,30 @@ import edu.wisc.cs.sdn.vnet.Device;
 import edu.wisc.cs.sdn.vnet.DumpFile;
 import edu.wisc.cs.sdn.vnet.Iface;
 
+import net.floodlightcontroller.packet.Data;
 import net.floodlightcontroller.packet.Ethernet;
+import net.floodlightcontroller.packet.ICMP;
 import net.floodlightcontroller.packet.IPv4;
+
+import java.nio.ByteBuffer;
 
 /**
  * @author Aaron Gember-Jacobson and Anubhavnidhi Abhashkumar
  */
 public class Router extends Device
-{	
+{
+    public static final byte ICMP_TIME_EXCEEDED_TYPE = 11;
+    public static final byte ICMP_TIME_EXCEEDED_CODE = 0;
+    public static final byte ICMP_NET_UNREACHABLE_TYPE = 3;
+    public static final byte ICMP_NET_UNREACHABLE_CODE = 0;
+    public static final byte ICMP_HOST_UNREACHABLE_TYPE = 3;
+    public static final byte ICMP_HOST_UNREACHABLE_CODE = 1;
+    public static final byte ICMP_PORT_UNREACHABLE_TYPE = 3;
+    public static final byte ICMP_PORT_UNREACHABLE_CODE = 3;
+    public static final byte ICMP_ECHO_REQUEST_TYPE = 8;
+    public static final byte ICMP_ECHO_RESPONSE_TYPE = 0;
+    public static final byte ICMP_ECHO_RESPONSE_CODE = 0;
+
 	/** Routing table for the router */
 	private RouteTable routeTable;
 	
@@ -84,7 +100,7 @@ public class Router extends Device
                 etherPacket.toString().replace("\n", "\n\t"));
 		
 		/********************************************************************/
-		/* TODO: Handle packets                                             */
+		/* Handle packets                                             */
 		
 		switch(etherPacket.getEtherType())
 		{
@@ -118,8 +134,10 @@ public class Router extends Device
         
         // Check TTL
         ipPacket.setTtl((byte)(ipPacket.getTtl()-1));
-        if (0 == ipPacket.getTtl())
-        { return; }
+        if (0 == ipPacket.getTtl()) {
+            sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_TIME_EXCEEDED_TYPE, ICMP_TIME_EXCEEDED_CODE);
+            return;
+        }
         
         // Reset checksum now that TTL is decremented
         ipPacket.resetChecksum();
@@ -127,8 +145,19 @@ public class Router extends Device
         // Check if packet is destined for one of router's interfaces
         for (Iface iface : this.interfaces.values())
         {
-        	if (ipPacket.getDestinationAddress() == iface.getIpAddress())
-        	{ return; }
+        	if (ipPacket.getDestinationAddress() == iface.getIpAddress()) {
+                if (ipPacket.getProtocol() == IPv4.PROTOCOL_ICMP) {
+                    ICMP icmpPacket = (ICMP) ipPacket.getPayload();
+                    if (icmpPacket.getIcmpType() == ICMP_ECHO_REQUEST_TYPE) {
+                        sendEchoResponse(inIface, etherPacket, ipPacket, icmpPacket);
+                    } else {
+                        System.out.println("Non-echo ICMP packet bound for interface");
+                    }
+                } else {
+                    sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_PORT_UNREACHABLE_TYPE, ICMP_PORT_UNREACHABLE_CODE);
+                }
+                return;
+            }
         }
 		
         // Do route lookup and forward
@@ -149,9 +178,11 @@ public class Router extends Device
         // Find matching route table entry 
         RouteEntry bestMatch = this.routeTable.lookup(dstAddr);
 
-        // If no entry matched, do nothing
-        if (null == bestMatch)
-        { return; }
+        // If no entry matched, ICMP Destination Net Unreachable
+        if (null == bestMatch) {
+            sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_NET_UNREACHABLE_TYPE, ICMP_NET_UNREACHABLE_CODE);
+            return;
+        }
 
         // Make sure we don't sent a packet back out the interface it came in
         Iface outIface = bestMatch.getInterface();
@@ -168,10 +199,71 @@ public class Router extends Device
 
         // Set destination MAC address in Ethernet header
         ArpEntry arpEntry = this.arpCache.lookup(nextHop);
-        if (null == arpEntry)
-        { return; }
+        if (null == arpEntry) {
+            sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_HOST_UNREACHABLE_TYPE, ICMP_HOST_UNREACHABLE_CODE);
+            return;
+        }
         etherPacket.setDestinationMACAddress(arpEntry.getMac().toBytes());
         
         this.sendPacket(etherPacket, outIface);
+    }
+
+    private void sendICMPIPPacket(Iface source, Ethernet etherSource, IPv4 ipSource, byte type, byte code) {
+        byte[] ipBytes = ipSource.serialize();
+        byte[] packetPayload = new byte[4+ipSource.getHeaderLength()+8];
+        ByteBuffer payload = ByteBuffer.wrap(packetPayload);
+        payload.rewind();
+        payload.putInt(0); // 4 bytes of padding
+        payload.put(ipBytes, 0, Math.min(ipBytes.length, ipSource.getHeaderLength() + 8));
+        sendICMPPacket(source, etherSource, ipSource, type, code, packetPayload);
+    }
+
+    private void sendEchoResponse(Iface source, Ethernet etherSource, IPv4 ipSource, ICMP icmpSource) {
+        sendICMPPacket(source, etherSource, ipSource, ICMP_ECHO_RESPONSE_TYPE, ICMP_ECHO_RESPONSE_CODE, icmpSource.getPayload().serialize());
+    }
+
+    private void sendICMPPacket(Iface source, Ethernet etherSource, IPv4 ipSource, byte type, byte code, byte[] payload) {
+        // create packet
+        Ethernet ether = new Ethernet();
+        IPv4 ip = new IPv4();
+        ICMP icmp = new ICMP();
+        Data data = new Data();
+        ether.setPayload(ip);
+        ip.setPayload(icmp);
+        icmp.setPayload(data);
+
+        // figure out where the ICMP packet needs to hop next
+        int destinationAddress = ipSource.getSourceAddress();
+        RouteEntry target = routeTable.lookup(destinationAddress);
+        if (target == null) {
+            System.out.printf("can't find ICMP target: %08X\n", destinationAddress);
+            return;
+        }
+        int nextHop = target.getGatewayAddress();
+        if (nextHop == 0)
+            nextHop = destinationAddress;
+        ArpEntry targetArp = this.arpCache.lookup(nextHop);
+        if (targetArp == null) {
+            System.out.printf("can't find ICMP target MAC for %08X\n", nextHop);
+            return;
+        }
+
+        // set up routing and other information
+        ether.setEtherType(Ethernet.TYPE_IPv4);
+        ether.setSourceMACAddress(source.getMacAddress().toBytes());
+        ether.setDestinationMACAddress(targetArp.getMac().toBytes());
+
+        ip.setTtl((byte)64);
+        ip.setProtocol(IPv4.PROTOCOL_ICMP);
+        ip.setSourceAddress(source.getIpAddress());
+        ip.setDestinationAddress(destinationAddress);
+
+        icmp.setIcmpType(type);
+        icmp.setIcmpCode(code);
+
+        data.setData(payload);
+
+        // send packet
+        this.sendPacket(ether, source);
     }
 }
