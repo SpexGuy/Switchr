@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -12,6 +13,8 @@ import java.util.regex.Pattern;
 import net.floodlightcontroller.packet.IPv4;
 
 import edu.wisc.cs.sdn.vnet.Iface;
+import net.floodlightcontroller.packet.RIPv2;
+import net.floodlightcontroller.packet.RIPv2Entry;
 
 /**
  * Route table for a router.
@@ -19,7 +22,9 @@ import edu.wisc.cs.sdn.vnet.Iface;
  */
 public class RouteTable 
 {
-	/** Entries in the route table */
+    public static final int RIP_UNREACHABLE = 16;
+
+    /** Entries in the route table */
 	private List<RouteEntry> entries; 
 	
 	/**
@@ -38,7 +43,7 @@ public class RouteTable
 		synchronized(this.entries)
         {
 			/*****************************************************************/
-			/* TODO: Find the route entry with the longest prefix match      */
+			/* Find the route entry with the longest prefix match            */
 			
 	        RouteEntry bestMatch = null;
 	        for (RouteEntry entry : this.entries)
@@ -143,7 +148,7 @@ public class RouteTable
 			}
 			
 			// Add an entry to the route table
-			this.insert(dstIp, gwIp, maskIp, iface);
+			this.insert(dstIp, gwIp, maskIp, iface, 0);
 		}
 	
 		// Close the file
@@ -159,9 +164,9 @@ public class RouteTable
 	 * @param iface router interface out which to send packets to reach the 
 	 *        destination or gateway
 	 */
-	public void insert(int dstIp, int gwIp, int maskIp, Iface iface)
+	public void insert(int dstIp, int gwIp, int maskIp, Iface iface, int distance)
 	{
-		RouteEntry entry = new RouteEntry(dstIp, gwIp, maskIp, iface);
+		RouteEntry entry = new RouteEntry(dstIp, gwIp, maskIp, iface, distance);
         synchronized(this.entries)
         { 
             this.entries.add(entry);
@@ -170,7 +175,7 @@ public class RouteTable
 	
 	/**
 	 * Remove an entry from the route table.
-	 * @param dstIP destination IP of the entry to remove
+	 * @param dstIp destination IP of the entry to remove
      * @param maskIp subnet mask of the entry to remove
      * @return true if a matching entry was found and removed, otherwise false
 	 */
@@ -185,32 +190,53 @@ public class RouteTable
         }
         return true;
     }
+
+    public boolean updateAll(RIPv2 entries, Iface iface) {
+        boolean updated = false;
+        // lock not strictly necessary, but ensures consistency in equal distance scenarios
+        synchronized (this.entries) {
+            for (RIPv2Entry entry : entries.getEntries()) {
+                updated |= update(entry.getAddress(), entry.getSubnetMask(), entry.getNextHopAddress(), iface, entry.getMetric() + 1);
+            }
+        }
+        return updated;
+    }
 	
 	/**
-	 * Update an entry in the route table.
-	 * @param dstIP destination IP of the entry to update
+	 * Update or insert an entry in the route table.
+	 * @param dstIp destination IP of the entry to update
      * @param maskIp subnet mask of the entry to update
-	 * @param gatewayAddress new gateway IP address for matching entry
+	 * @param gwIp new gateway IP address for matching entry
 	 * @param iface new router interface for matching entry
      * @return true if a matching entry was found and updated, otherwise false
 	 */
 	public boolean update(int dstIp, int maskIp, int gwIp, 
-            Iface iface)
+            Iface iface, int distance)
 	{
         synchronized(this.entries)
         {
             RouteEntry entry = this.find(dstIp, maskIp);
-            if (null == entry)
-            { return false; }
-            entry.setGatewayAddress(gwIp);
-            entry.setInterface(iface);
+            if (distance > 0 && distance < RIP_UNREACHABLE) {
+                if (null == entry) {
+                    insert(dstIp, gwIp, maskIp, iface, distance);
+                    return true;
+                } else if (entry.isExpired() || distance < entry.getDistance()) {
+                    entry.setGatewayAddress(gwIp);
+                    entry.setInterface(iface);
+                    entry.setDistance(distance);
+                    entry.refresh();
+                    return true;
+                }
+            } else if (null != entry) {
+                //TODO: entry is unreachable! what happens now?
+            }
         }
-        return true;
+        return false;
 	}
 
     /**
 	 * Find an entry in the route table.
-	 * @param dstIP destination IP of the entry to find
+	 * @param dstIp destination IP of the entry to find
      * @param maskIp subnet mask of the entry to find
      * @return a matching entry if one was found, otherwise null
 	 */
@@ -226,6 +252,22 @@ public class RouteTable
             }
         }
         return null;
+    }
+
+    public RIPv2 makeRIPPacket() {
+        RIPv2 packet = new RIPv2();
+        synchronized (this.entries) {
+            Iterator<RouteEntry> iter = entries.iterator();
+            while(iter.hasNext()) {
+                RouteEntry entry = iter.next();
+                if (entry.isExpired()) {
+                    iter.remove();
+                    continue;
+                }
+                packet.addEntry(new RIPv2Entry(entry.getDestinationAddress(), entry.getMaskAddress(), entry.getDistance()));
+            }
+        }
+        return packet;
     }
 	
 	public String toString()
