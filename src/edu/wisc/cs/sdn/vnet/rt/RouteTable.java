@@ -48,15 +48,17 @@ public class RouteTable
 	        RouteEntry bestMatch = null;
 	        for (RouteEntry entry : this.entries)
 	        {
-	           int maskedDst = ip & entry.getMaskAddress();
-	           int entrySubnet = entry.getDestinationAddress() 
-	               & entry.getMaskAddress();
-	           if (maskedDst == entrySubnet)
-	           {
-	        	   if ((null == bestMatch) 
-	        		   || (entry.getMaskAddress() > bestMatch.getMaskAddress()))
-	        	   { bestMatch = entry; }
-	           }
+                if (entry.isExpired())
+                    continue;
+                int maskedDst = ip & entry.getMaskAddress();
+                int entrySubnet = entry.getDestinationAddress()
+                    & entry.getMaskAddress();
+                if (maskedDst == entrySubnet)
+                {
+                    if ((null == bestMatch)
+                        || (entry.getMaskAddress() > bestMatch.getMaskAddress()))
+                    { bestMatch = entry; }
+                }
 	        }
 			
 			return bestMatch;
