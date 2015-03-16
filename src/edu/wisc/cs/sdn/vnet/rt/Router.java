@@ -6,10 +6,6 @@ import edu.wisc.cs.sdn.vnet.Iface;
 
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
-import net.floodlightcontroller.packet.MACAddress;
-
-import java.nio.ByteBuffer;
-import java.util.Map;
 
 /**
  * @author Aaron Gember-Jacobson and Anubhavnidhi Abhashkumar
@@ -89,97 +85,93 @@ public class Router extends Device
 		
 		/********************************************************************/
 		/* TODO: Handle packets                                             */
-		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4) {
-			System.out.println("Dropped! - not IPv4");
-			return;
+		
+		switch(etherPacket.getEtherType())
+		{
+		case Ethernet.TYPE_IPv4:
+			this.handleIpPacket(etherPacket, inIface);
+			break;
+		// Ignore all other packet types, for now
 		}
-
-		IPv4 packet = (IPv4) etherPacket.getPayload();
-		if (!verifyChecksum(packet)) {
-			System.out.println("Dropped! - invalid checksum");
-			return;
-		}
-
-		int newTtl = packet.getTtl() - 1;
-		if (newTtl <= 0) {
-			System.out.println("Dropped! - arthritis");
-			return;
-		}
-		packet.setTtl((byte)newTtl);
-
-		if (isInterfaceBound(packet)) {
-			System.out.println("Dropped! - bound for interface");
-			return;
-		}
-
-		RouteEntry target = routeTable.lookup(packet.getDestinationAddress());
-		if (target == null) {
-			System.out.println("Dropped! - unknown destination address");
-			return;
-		}
-
-		// Don't send a packet out the iface it comes in on
-		if(inIface == target.getInterface()) {
-			System.out.println("Dropped! - packet destined for iface it entered on");
-			return;
-		}
-
-		int outgoingAddress = target.getInterface().getIpAddress();
-		System.out.printf("Lookup outgoing MAC from: %08X\n", outgoingAddress);
-		ArpEntry sourceArp = arpCache.lookup(outgoingAddress);
-		if (sourceArp == null) {
-			System.out.println("Dropped! - unknown arp entry");
-			return;
-		}
-
-		int destinationAddress = target.getGatewayAddress();
-		if (destinationAddress == 0) {
-			destinationAddress = packet.getDestinationAddress();
-			System.out.printf("Final Jump To: %08X\n", destinationAddress);
-		}
-		ArpEntry destinationArp = arpCache.lookup(destinationAddress);
-		if (destinationArp == null) {
-			System.out.println("Dropped! - unknown destination arp entry");
-			return;
-		}
-		etherPacket.setDestinationMACAddress(destinationArp.getMac().toBytes());
-
-		System.out.println("Setting source to: " + sourceArp.getMac());
-		etherPacket.setSourceMACAddress(sourceArp.getMac().toBytes());
-		System.out.println("Destination MAC is: " + etherPacket.getDestinationMAC());
-
-		// See IPV4 ln 285
-		packet.resetChecksum();
-
-		System.out.println("Sending packet out iFace: " + target.getInterface());
-		sendPacket(etherPacket, target.getInterface());
-
+		
 		/********************************************************************/
 	}
+	
+	private void handleIpPacket(Ethernet etherPacket, Iface inIface)
+	{
+		// Make sure it's an IP packet
+		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4)
+		{ return; }
+		
+		// Get IP header
+		IPv4 ipPacket = (IPv4)etherPacket.getPayload();
+        System.out.println("Handle IP packet");
 
-	private boolean isInterfaceBound(IPv4 packet) {
-		for (Map.Entry<String, Iface> iface : interfaces.entrySet()) {
-			if (iface.getValue().getIpAddress() == packet.getDestinationAddress())
-				return true;
-		}
-		return false;
+        // Verify checksum
+        short origCksum = ipPacket.getChecksum();
+        ipPacket.resetChecksum();
+        byte[] serialized = ipPacket.serialize();
+        ipPacket.deserialize(serialized, 0, serialized.length);
+        short calcCksum = ipPacket.getChecksum();
+        if (origCksum != calcCksum)
+        { return; }
+        
+        // Check TTL
+        ipPacket.setTtl((byte)(ipPacket.getTtl()-1));
+        if (0 == ipPacket.getTtl())
+        { return; }
+        
+        // Reset checksum now that TTL is decremented
+        ipPacket.resetChecksum();
+        
+        // Check if packet is destined for one of router's interfaces
+        for (Iface iface : this.interfaces.values())
+        {
+        	if (ipPacket.getDestinationAddress() == iface.getIpAddress())
+        	{ return; }
+        }
+		
+        // Do route lookup and forward
+        this.forwardIpPacket(etherPacket, inIface);
 	}
 
-	private static boolean verifyChecksum(IPv4 packet) {
-		ByteBuffer bb = ByteBuffer.wrap(packet.serialize());
-		bb.rewind();
-		int headerLength = packet.getHeaderLength();
-		int accumulation = 0;
-		for (int i = 0; i < headerLength * 2; ++i) {
-			short part = bb.getShort();
-			if (i != 5) // skip the checksum
-				accumulation += 0xffff & part;
-		}
-		accumulation = ((accumulation >> 16) & 0xffff)
-				+ (accumulation & 0xffff);
-		short checksum = (short) (~accumulation & 0xffff);
-		return checksum == packet.getChecksum();
-	}
+    private void forwardIpPacket(Ethernet etherPacket, Iface inIface)
+    {
+        // Make sure it's an IP packet
+		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4)
+		{ return; }
+        System.out.println("Forward IP packet");
+		
+		// Get IP header
+		IPv4 ipPacket = (IPv4)etherPacket.getPayload();
+        int dstAddr = ipPacket.getDestinationAddress();
 
+        // Find matching route table entry 
+        RouteEntry bestMatch = this.routeTable.lookup(dstAddr);
 
+        // If no entry matched, do nothing
+        if (null == bestMatch)
+        { return; }
+
+        // Make sure we don't sent a packet back out the interface it came in
+        Iface outIface = bestMatch.getInterface();
+        if (outIface == inIface)
+        { return; }
+
+        // Set source MAC address in Ethernet header
+        etherPacket.setSourceMACAddress(outIface.getMacAddress().toBytes());
+
+        // If no gateway, then nextHop is IP destination
+        int nextHop = bestMatch.getGatewayAddress();
+        if (0 == nextHop)
+        { nextHop = dstAddr; }
+
+        // Set destination MAC address in Ethernet header
+        ArpEntry arpEntry = this.arpCache.lookup(nextHop);
+        if (null == arpEntry)
+        { return; }
+        etherPacket.setDestinationMACAddress(arpEntry.getMac().toBytes());
+        
+        this.sendPacket(etherPacket, outIface);
+    }
 }

@@ -38,37 +38,28 @@ public class RouteTable
 		synchronized(this.entries)
         {
 			/*****************************************************************/
-			/* Find the route entry with the longest prefix match            */
-			int maxMatch = -1;
-			RouteEntry bestEntry = null;
-			for (RouteEntry entry : entries) {
-				int mask = entry.getMaskAddress();
-				int subnet = entry.getDestinationAddress();
-				if ((ip & mask) == (subnet & mask)) {
-					int specificity = countOnes(mask);
-					if (specificity > maxMatch) {
-						maxMatch = specificity;
-						bestEntry = entry;
-					}
-				}
-			}
-			return bestEntry;
+			/* TODO: Find the route entry with the longest prefix match      */
+			
+	        RouteEntry bestMatch = null;
+	        for (RouteEntry entry : this.entries)
+	        {
+	           int maskedDst = ip & entry.getMaskAddress();
+	           int entrySubnet = entry.getDestinationAddress() 
+	               & entry.getMaskAddress();
+	           if (maskedDst == entrySubnet)
+	           {
+	        	   if ((null == bestMatch) 
+	        		   || (entry.getMaskAddress() > bestMatch.getMaskAddress()))
+	        	   { bestMatch = entry; }
+	           }
+	        }
+			
+			return bestMatch;
+			
 			/*****************************************************************/
         }
 	}
-
-	/**
-	 * Count the number of set bits in a mask
-	 * (see StackOverflow http://stackoverflow.com/questions/109023/how-to-count-the-number-of-set-bits-in-a-32-bit-integer)
-	 * @param mask
-	 * @return
-	 */
-	private static int countOnes(int mask) {
-		mask = mask - ((mask >> 1) & 0x55555555);                // put count of each 2 bits into those 2 bits
-		mask = (mask & 0x33333333) + ((mask >> 2) & 0x33333333); // put count of each 4 bits into those 4 bits
-		return ((mask + (mask >> 4) & 0xF0F0F0F) * 0x1010101) >> 24;
-	}
-
+	
 	/**
 	 * Populate the route table from a file.
 	 * @param filename name of the file containing the static route table
