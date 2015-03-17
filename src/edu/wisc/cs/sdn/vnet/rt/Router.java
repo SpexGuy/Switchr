@@ -302,7 +302,7 @@ public class Router extends Device
             }
             System.out.println();
         }
-        System.out.printf("%04X :\n", numExtra*16);
+        System.out.printf("%04X :", numRows*16);
         for (int c = 0; c < numExtra; c++) {
             System.out.printf(" %02X", data[numRows*16 + c]);
         }
