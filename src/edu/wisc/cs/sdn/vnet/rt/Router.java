@@ -229,11 +229,12 @@ public class Router extends Device
     private void sendICMPIPPacket(Iface source, Ethernet etherSource, IPv4 ipSource, byte type, byte code) {
         System.out.println("Send ICMP IP packet");
         byte[] ipBytes = ipSource.serialize();
-        byte[] packetPayload = new byte[4+ipSource.getHeaderLength()+8];
+        int ipHeaderSize = ipSource.getHeaderLength() * 4;
+        byte[] packetPayload = new byte[4 + ipHeaderSize + 8];
         ByteBuffer payload = ByteBuffer.wrap(packetPayload);
         payload.rewind();
         payload.putInt(0); // 4 bytes of padding
-        payload.put(ipBytes, 0, Math.min(ipBytes.length, ipSource.getHeaderLength() + 8));
+        payload.put(ipBytes, 0, Math.min(ipBytes.length, ipHeaderSize + 8));
         sendICMPPacket(source, etherSource, ipSource, type, code, packetPayload);
     }
 
@@ -286,19 +287,13 @@ public class Router extends Device
         // send packet
         System.out.println("<------ Sending ICMP packet: " +
                 ether.toString().replace("\n", "\n\t"));
-        dumpBinary(ether.serialize());
-        System.out.println("ICMP:");
-        dumpBinary(icmp.serialize());
-        System.out.println("DATA:");
-        dumpBinary(data.serialize());
-        System.out.println("in theory:");
-        dumpBinary(payload);
+        dumpBinary(ether.serialize(), "ETH ");
 
         this.sendPacket(ether, source);
     }
 
-    private void dumpBinary(byte[] data) {
-        System.out.println("     : 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F");
+    private void dumpBinary(byte[] data, String name4) {
+        System.out.printf("%s : 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n", name4);
         System.out.println("------------------------------------------------------");
         int numRows = data.length/16;
         int numExtra = data.length%16;
