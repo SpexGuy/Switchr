@@ -98,7 +98,8 @@ public class Router extends Device
 	{
 		System.out.println("*** -> Received packet: " +
                 etherPacket.toString().replace("\n", "\n\t"));
-		
+        dumpBinary(etherPacket.serialize());
+
 		/********************************************************************/
 		/* Handle packets                                             */
 		
@@ -284,7 +285,25 @@ public class Router extends Device
         // send packet
         System.out.println("<------ Sending ICMP packet: " +
                 ether.toString().replace("\n", "\n\t"));
+        dumpBinary(ether.serialize());
 
         this.sendPacket(ether, source);
+    }
+
+    private void dumpBinary(byte[] data) {
+        System.out.println("     : 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F");
+        System.out.println("------------------------------------------------------");
+        int numRows = data.length/16;
+        int numExtra = data.length%16;
+        for (int r = 0; r < numRows; r++) {
+            System.out.printf("%04X :\n", r*16);
+            for (int c = 0; c < 16; c++) {
+                System.out.printf(" %02X", data[r * 16 + c]);
+            }
+        }
+        System.out.printf("%04X :\n", numExtra*16);
+        for (int c = 0; c < numExtra; c++) {
+            System.out.printf(" %02X", data[numRows*16 + c]);
+        }
     }
 }
