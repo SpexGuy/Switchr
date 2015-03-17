@@ -296,14 +296,16 @@ public class Router extends Device
         int numRows = data.length/16;
         int numExtra = data.length%16;
         for (int r = 0; r < numRows; r++) {
-            System.out.printf("%04X :\n", r*16);
+            System.out.printf("%04X :", r*16);
             for (int c = 0; c < 16; c++) {
                 System.out.printf(" %02X", data[r * 16 + c]);
             }
+            System.out.println();
         }
         System.out.printf("%04X :\n", numExtra*16);
         for (int c = 0; c < numExtra; c++) {
             System.out.printf(" %02X", data[numRows*16 + c]);
         }
+        System.out.println();
     }
 }
