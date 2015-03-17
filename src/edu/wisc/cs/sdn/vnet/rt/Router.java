@@ -96,6 +96,7 @@ public class Router extends Device
 	 */
 	public void handlePacket(Ethernet etherPacket, Iface inIface)
 	{
+        System.out.println();
 		System.out.println("*** -> Received packet: " +
                 etherPacket.toString().replace("\n", "\n\t"));
         dumpBinary(etherPacket.serialize());
@@ -286,6 +287,12 @@ public class Router extends Device
         System.out.println("<------ Sending ICMP packet: " +
                 ether.toString().replace("\n", "\n\t"));
         dumpBinary(ether.serialize());
+        System.out.println("ICMP:");
+        dumpBinary(icmp.serialize());
+        System.out.println("DATA:");
+        dumpBinary(data.serialize());
+        System.out.println("in theory:");
+        dumpBinary(payload);
 
         this.sendPacket(ether, source);
     }
