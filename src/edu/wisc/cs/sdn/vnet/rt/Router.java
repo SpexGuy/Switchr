@@ -116,8 +116,10 @@ public class Router extends Device
 	private void handleIpPacket(Ethernet etherPacket, Iface inIface)
 	{
 		// Make sure it's an IP packet
-		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4)
-		{ return; }
+		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4) {
+            assert(false);
+            return;
+        }
 		
 		// Get IP header
 		IPv4 ipPacket = (IPv4)etherPacket.getPayload();
@@ -129,12 +131,15 @@ public class Router extends Device
         byte[] serialized = ipPacket.serialize();
         ipPacket.deserialize(serialized, 0, serialized.length);
         short calcCksum = ipPacket.getChecksum();
-        if (origCksum != calcCksum)
-        { return; }
+        if (origCksum != calcCksum) {
+            System.out.println("Dropping - Bad checksum");
+            return;
+        }
         
         // Check TTL
         ipPacket.setTtl((byte)(ipPacket.getTtl()-1));
         if (0 == ipPacket.getTtl()) {
+            System.out.println("Dropping - Bad TTL");
             sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_TIME_EXCEEDED_TYPE, ICMP_TIME_EXCEEDED_CODE);
             return;
         }
@@ -143,18 +148,22 @@ public class Router extends Device
         ipPacket.resetChecksum();
         
         // Check if packet is destined for one of router's interfaces
-        for (Iface iface : this.interfaces.values())
-        {
-        	if (ipPacket.getDestinationAddress() == iface.getIpAddress()) {
-                if (ipPacket.getProtocol() == IPv4.PROTOCOL_ICMP) {
+        int ipProtocol = ipPacket.getProtocol();
+        for (Iface iface : this.interfaces.values()) {
+            if (ipPacket.getDestinationAddress() == iface.getIpAddress()) {
+                if (ipProtocol == IPv4.PROTOCOL_ICMP) {
                     ICMP icmpPacket = (ICMP) ipPacket.getPayload();
                     if (icmpPacket.getIcmpType() == ICMP_ECHO_REQUEST_TYPE) {
+                        System.out.println("Dropping - ICMP echo request");
                         sendEchoResponse(inIface, etherPacket, ipPacket, icmpPacket);
                     } else {
                         System.out.println("Non-echo ICMP packet bound for interface");
                     }
-                } else {
+                } else if (ipProtocol == IPv4.PROTOCOL_TCP || ipProtocol == IPv4.PROTOCOL_UDP) {
+                    System.out.println("Dropping - TCP or UDP bound for interface");
                     sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_PORT_UNREACHABLE_TYPE, ICMP_PORT_UNREACHABLE_CODE);
+                } else {
+                    System.out.println("Dropping - NOT TCP or UDP bound for interface");
                 }
                 return;
             }
@@ -167,8 +176,10 @@ public class Router extends Device
     private void forwardIpPacket(Ethernet etherPacket, Iface inIface)
     {
         // Make sure it's an IP packet
-		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4)
-		{ return; }
+		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4) {
+            assert(false);
+            return;
+        }
         System.out.println("Forward IP packet");
 		
 		// Get IP header
@@ -180,26 +191,31 @@ public class Router extends Device
 
         // If no entry matched, ICMP Destination Net Unreachable
         if (null == bestMatch) {
+            System.out.println("Dropping - No Route Entry");
             sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_NET_UNREACHABLE_TYPE, ICMP_NET_UNREACHABLE_CODE);
             return;
         }
 
         // Make sure we don't sent a packet back out the interface it came in
         Iface outIface = bestMatch.getInterface();
-        if (outIface == inIface)
-        { return; }
+        if (outIface == inIface) {
+            System.out.println("Dropping - outgoing interface == incoming interface");
+            return;
+        }
 
         // Set source MAC address in Ethernet header
         etherPacket.setSourceMACAddress(outIface.getMacAddress().toBytes());
 
         // If no gateway, then nextHop is IP destination
         int nextHop = bestMatch.getGatewayAddress();
-        if (0 == nextHop)
-        { nextHop = dstAddr; }
+        if (0 == nextHop) {
+            nextHop = dstAddr;
+        }
 
         // Set destination MAC address in Ethernet header
         ArpEntry arpEntry = this.arpCache.lookup(nextHop);
         if (null == arpEntry) {
+            System.out.println("Dropping - No ARP Entry");
             sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_HOST_UNREACHABLE_TYPE, ICMP_HOST_UNREACHABLE_CODE);
             return;
         }
@@ -209,6 +225,7 @@ public class Router extends Device
     }
 
     private void sendICMPIPPacket(Iface source, Ethernet etherSource, IPv4 ipSource, byte type, byte code) {
+        System.out.println("Send ICMP IP packet");
         byte[] ipBytes = ipSource.serialize();
         byte[] packetPayload = new byte[4+ipSource.getHeaderLength()+8];
         ByteBuffer payload = ByteBuffer.wrap(packetPayload);
@@ -219,6 +236,7 @@ public class Router extends Device
     }
 
     private void sendEchoResponse(Iface source, Ethernet etherSource, IPv4 ipSource, ICMP icmpSource) {
+        System.out.println("Send ICMP Echo");
         sendICMPPacket(source, etherSource, ipSource, ICMP_ECHO_RESPONSE_TYPE, ICMP_ECHO_RESPONSE_CODE, icmpSource.getPayload().serialize());
     }
 
@@ -264,6 +282,9 @@ public class Router extends Device
         data.setData(payload);
 
         // send packet
+        System.out.println("<------ Sending ICMP packet: " +
+                ether.toString().replace("\n", "\n\t"));
+
         this.sendPacket(ether, source);
     }
 }
