@@ -99,7 +99,7 @@ public class Router extends Device
         System.out.println();
 		System.out.println("*** -> Received packet: " +
                 etherPacket.toString().replace("\n", "\n\t"));
-        dumpBinary(etherPacket.serialize());
+        dumpBinary(etherPacket.serialize(), " IN ");
 
 		/********************************************************************/
 		/* Handle packets                                             */
@@ -287,7 +287,7 @@ public class Router extends Device
         // send packet
         System.out.println("<------ Sending ICMP packet: " +
                 ether.toString().replace("\n", "\n\t"));
-        dumpBinary(ether.serialize(), "ETH ");
+        dumpBinary(ether.serialize(), "OUT ");
 
         this.sendPacket(ether, source);
     }
