@@ -147,20 +147,25 @@ public class Router extends Device
 	}
 
     public void runRIP() {
+        System.out.println("Running RIP");
         // add direct subnets
         for (Iface i : interfaces.values()) {
             routeTable.insert(i.getIpAddress(), 0, i.getSubnetMask(), i, 1);
         }
+        System.out.println("Starting route table:");
+        System.out.println(routeTable);
         broadcastRIPPackets(RIPv2.COMMAND_REQUEST, null);
     }
 
     private void replyToRIP(Ethernet source, Iface outIface) {
+        System.out.println("Reply to RIP");
         IPv4 ip = (IPv4) source.getPayload();
         Ethernet out = generateRIPPacket(RIPv2.COMMAND_RESPONSE, ip.getSourceAddress(), source.getSourceMACAddress());
         sendRIPPacket(out, outIface);
     }
 
     private void broadcastRIPPackets(byte command, Iface exclude) {
+        System.out.println("Broadcasting RIP packets");
         Ethernet ether = generateRIPPacket(command, RIP_ADDRESS, BROADCAST_MAC);
 
         // SPAM YOUR FRIENDS WITH STATUS UPDATES!!!
@@ -195,10 +200,13 @@ public class Router extends Device
         IPv4 ip = (IPv4) ether.getPayload();
         ip.setSourceAddress(iface.getIpAddress());
         ether.setSourceMACAddress(iface.getMacAddress().toBytes());
+        System.out.println("Sending RIP packet to "+iface.getName());
+        dumpBinary(ether.serialize(), "RIP ");
         sendPacket(ether, iface);
     }
 
     private void handleRIPPacket(Ethernet ether, Iface inIface) {
+        System.out.println("Handle RIP packet");
         RIPv2 rip = (RIPv2) ether.getPayload().getPayload().getPayload();
         if (routeTable.updateAll(rip, inIface)) {
             // Don't ignore inIface, since it may have multiple routers on it.
