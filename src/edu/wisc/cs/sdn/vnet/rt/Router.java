@@ -198,20 +198,21 @@ public class Router extends Device
         IPv4 ip = (IPv4) ether.getPayload();
         ip.setSourceAddress(iface.getIpAddress());
         ether.setSourceMACAddress(iface.getMacAddress().toBytes());
-        System.out.println("Sending RIP packet to "+iface.getName());
+        System.out.println("Sending RIP packet to " + iface.getName());
         dumpBinary(ether.serialize(), "RIP ");
         sendPacket(ether, iface);
     }
 
     private void handleRIPPacket(Ethernet ether, Iface inIface) {
         System.out.println("Handle RIP packet");
-        RIPv2 rip = (RIPv2) ether.getPayload().getPayload().getPayload();
-        if (routeTable.updateAll(rip, inIface)) {
+        IPv4 ip = (IPv4) ether.getPayload();
+        RIPv2 rip = (RIPv2) ip.getPayload().getPayload();
+        if (routeTable.updateAll(ip.getSourceAddress(), rip, inIface)) {
             System.out.println("Route table updated!");
             System.out.println(routeTable);
             // Don't ignore inIface, since it may have multiple routers on it.
             // Then again, they would have received the offending update.
-            // TODO: Can we safely exclude inIface?
+            // TODO: Can we safely exclude inIface if not request?
             broadcastRIPPackets(RIPv2.COMMAND_RESPONSE, null);
         } else if (rip.getCommand() == RIPv2.COMMAND_REQUEST) {
             replyToRIP(ether, inIface);

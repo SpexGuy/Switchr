@@ -191,12 +191,12 @@ public class RouteTable
         return true;
     }
 
-    public boolean updateAll(RIPv2 entries, Iface iface) {
+    public boolean updateAll(int sourceIp, RIPv2 entries, Iface iface) {
         boolean updated = false;
         // lock not strictly necessary, but ensures consistency in equal distance scenarios
         synchronized (this.entries) {
             for (RIPv2Entry entry : entries.getEntries()) {
-                updated |= update(entry.getAddress(), entry.getSubnetMask(), entry.getNextHopAddress(), iface, entry.getMetric() + 1);
+                updated |= update(entry.getAddress(), entry.getSubnetMask(), sourceIp, iface, entry.getMetric() + 1);
             }
         }
         return updated;
