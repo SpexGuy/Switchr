@@ -37,6 +37,7 @@ public class Router extends Device
     private class ArpLookupChecker extends TimerTask {
         @Override
         public void run() {
+            System.out.println("Running ARP Update!");
             updateArpStatus();
         }
     }
@@ -192,6 +193,7 @@ public class Router extends Device
 	}
 
     private void handleArpPacket(Ethernet etherPacket, Iface inIface) {
+        System.out.println("Incoming ARP Packet");
         ARP arpPacket = (ARP) etherPacket.getPayload();
         switch(arpPacket.getOpCode()) {
         case ARP.OP_REQUEST:
@@ -207,6 +209,7 @@ public class Router extends Device
     }
 
     private void sendArpReply(Ethernet sourceEther, ARP sourceArp, Iface inIface) {
+        System.out.println("Sending ARP Reply");
         Ethernet ether = new Ethernet();
         ARP arp = new ARP();
         ether.setPayload(arp);
@@ -225,10 +228,12 @@ public class Router extends Device
         arp.setTargetHardwareAddress(sourceArp.getSenderHardwareAddress());
         arp.setTargetProtocolAddress(sourceArp.getSenderProtocolAddress());
 
+        dumpBinary(ether.serialize(), "ARP ");
         sendPacket(ether, inIface);
     }
 
     private void broadcastArpRequest(Iface outIface, int ip) {
+        System.out.println("Sending ARP Request");
         Ethernet ether = new Ethernet();
         ARP arp = new ARP();
         ether.setPayload(arp);
@@ -247,11 +252,14 @@ public class Router extends Device
         arp.setTargetHardwareAddress(ZERO_MAC);
         arp.setTargetProtocolAddress(ip);
 
+        dumpBinary(ether.serialize(), "ARP ");
         sendPacket(ether, outIface);
     }
 
     private void handleArpResponse(ARP info) {
+        System.out.println("ARP Response!");
         int ip = ByteBuffer.wrap(info.getSenderProtocolAddress()).getInt();
+        System.out.printf("Freeing %08X\n", ip);
         synchronized (delayedSends) {
             ArpDelayedSend delayed = delayedSends.remove(ip);
             // keep this in the synchronized so that we don't race to the ARP cache
@@ -275,6 +283,7 @@ public class Router extends Device
     }
 
     private void delayPacket(Iface inIface, Ethernet etherPacket, IPv4 ipPacket, int nextHop, Iface outIface) {
+        System.out.println("Delay packet!");
         synchronized (delayedSends) {
             ArpDelayedSend entry = delayedSends.get(nextHop);
             if (entry == null) {
@@ -387,7 +396,7 @@ public class Router extends Device
         // Set destination MAC address in Ethernet header
         ArpEntry arpEntry = this.arpCache.lookup(nextHop);
         if (null == arpEntry) {
-            System.out.println("Dropping - No ARP Entry");
+            System.out.println("Delaying - No ARP Entry");
             delayPacket(inIface, etherPacket, ipPacket, nextHop, outIface);
             //don't send ICMP here anymore
             //sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_HOST_UNREACHABLE_TYPE, ICMP_HOST_UNREACHABLE_CODE);
