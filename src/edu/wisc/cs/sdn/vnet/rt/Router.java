@@ -160,13 +160,13 @@ public class Router extends Device
     private void replyToRIP(Ethernet source, Iface outIface) {
         System.out.println("Reply to RIP");
         IPv4 ip = (IPv4) source.getPayload();
-        Ethernet out = generateRIPPacket(RIPv2.COMMAND_RESPONSE, ip.getSourceAddress(), source.getSourceMACAddress());
+        Ethernet out = generateRIPPacket(RIPv2.COMMAND_RESPONSE, source.getSourceMACAddress());
         sendRIPPacket(out, outIface);
     }
 
     private void broadcastRIPPackets(byte command, Iface exclude) {
         System.out.println("Broadcasting RIP packets");
-        Ethernet ether = generateRIPPacket(command, RIP_ADDRESS, BROADCAST_MAC);
+        Ethernet ether = generateRIPPacket(command, BROADCAST_MAC);
 
         // SPAM YOUR FRIENDS WITH STATUS UPDATES!!!
         for (Iface iface : interfaces.values()) {
@@ -176,7 +176,7 @@ public class Router extends Device
         }
     }
 
-    private Ethernet generateRIPPacket(byte command, int destinationAddress, byte[] destinationMac) {
+    private Ethernet generateRIPPacket(byte command, byte[] destinationMac) {
         Ethernet ether = new Ethernet();
         IPv4 ip = new IPv4();
         UDP udp = new UDP();
@@ -188,7 +188,7 @@ public class Router extends Device
         rip.setCommand(command);
         udp.setSourcePort(UDP.RIP_PORT);
         udp.setDestinationPort(UDP.RIP_PORT);
-        ip.setDestinationAddress(destinationAddress);
+        ip.setDestinationAddress(RIP_ADDRESS);
         ip.setProtocol(IPv4.PROTOCOL_UDP);
         ether.setDestinationMACAddress(destinationMac);
         ether.setEtherType(Ethernet.TYPE_IPv4);
