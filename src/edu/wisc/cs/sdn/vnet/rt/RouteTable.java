@@ -215,6 +215,7 @@ public class RouteTable
 	public boolean update(int dstIp, int maskIp, int gwIp, 
             Iface iface, int distance)
 	{
+        distance = Math.min(distance, RIP_UNREACHABLE);
         synchronized(this.entries)
         {
             RouteEntry entry = this.find(dstIp, maskIp);
@@ -228,11 +229,15 @@ public class RouteTable
                     entry.setDistance(distance);
                     entry.refresh();
                     return true;
-                } else if (distance == entry.getDistance()) {
+                } else if (distance == entry.getDistance() && distance < RIP_UNREACHABLE) {
+                    // allow unreachable destinations to expire
                     entry.refresh();
                 }
             } else if (null != entry) {
-                //TODO: entry is unreachable! what happens now?
+                // entry is unreachable, tell everybody
+                boolean alreadyKnew = entry.getDistance() == RIP_UNREACHABLE;
+                entry.setDistance(RIP_UNREACHABLE);
+                return !alreadyKnew;
             }
         }
         return false;
