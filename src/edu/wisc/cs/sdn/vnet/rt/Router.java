@@ -246,7 +246,7 @@ public class Router extends Device
         arp.setProtocolType(ARP.PROTO_TYPE_IP);
         arp.setHardwareAddressLength((byte) Ethernet.DATALAYER_ADDRESS_LENGTH);
         arp.setProtocolAddressLength((byte) 4);
-        arp.setOpCode(ARP.OP_REPLY);
+        arp.setOpCode(ARP.OP_REQUEST);
         arp.setSenderHardwareAddress(outIface.getMacAddress().toBytes());
         arp.setSenderProtocolAddress(outIface.getIpAddress());
         arp.setTargetHardwareAddress(ZERO_MAC);
