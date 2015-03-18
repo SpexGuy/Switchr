@@ -39,7 +39,6 @@ public class Router extends Device
     private class ArpLookupChecker extends TimerTask {
         @Override
         public void run() {
-            System.out.println("Running ARP Update!");
             updateArpStatus();
         }
     }
@@ -159,7 +158,6 @@ public class Router extends Device
 
     private void replyToRIP(Ethernet source, Iface outIface) {
         System.out.println("Reply to RIP");
-        IPv4 ip = (IPv4) source.getPayload();
         Ethernet out = generateRIPPacket(RIPv2.COMMAND_RESPONSE, source.getSourceMACAddress());
         sendRIPPacket(out, outIface);
     }
@@ -209,13 +207,13 @@ public class Router extends Device
         System.out.println("Handle RIP packet");
         RIPv2 rip = (RIPv2) ether.getPayload().getPayload().getPayload();
         if (routeTable.updateAll(rip, inIface)) {
+            System.out.println("Route table updated!");
+            System.out.println(routeTable);
             // Don't ignore inIface, since it may have multiple routers on it.
             // Then again, they would have received the offending update.
             // TODO: Can we safely exclude inIface?
             broadcastRIPPackets(RIPv2.COMMAND_RESPONSE, null);
-        }
-        //TODO: broadcast and reply feels redundant. else if?
-        if (rip.getCommand() == RIPv2.COMMAND_REQUEST) {
+        } else if (rip.getCommand() == RIPv2.COMMAND_REQUEST) {
             replyToRIP(ether, inIface);
         }
     }
@@ -456,6 +454,7 @@ public class Router extends Device
         // If no entry matched, ICMP Destination Net Unreachable
         if (null == bestMatch) {
             System.out.println("Dropping - No Route Entry");
+            System.out.println(routeTable);
             sendICMPIPPacket(inIface, etherPacket, ipPacket, ICMP_NET_UNREACHABLE_TYPE, ICMP_NET_UNREACHABLE_CODE);
             return;
         }
