@@ -228,6 +228,8 @@ public class RouteTable
                     entry.setDistance(distance);
                     entry.refresh();
                     return true;
+                } else if (distance == entry.getDistance()) {
+                    entry.refresh();
                 }
             } else if (null != entry) {
                 //TODO: entry is unreachable! what happens now?
